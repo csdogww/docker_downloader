@@ -1,0 +1,28 @@
+name: Download Docker Image
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: 'Docker image name (e.g. etenal/syzscope:ready2go)'
+        required: true
+        default: 'etenal/syzscope:ready2go'
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo apt-get clean
+      - name: Pull image
+        run: docker pull ${{ github.event.inputs.image }}
+      - name: Save image to tar
+        run: docker save -o image.tar ${{ github.event.inputs.image }}
+      - name: Split tar file (2GB per chunk)
+        run: split -b 2000M image.tar image.tar.part.
+      - name: Upload to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image-parts
+          path: image.tar.part.*
+          retention-days: 1
