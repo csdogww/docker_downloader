@@ -11,7 +11,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: 🧹 Maximize build space (Free up 30GB)
+      - name: 🧹 Maximize build space (Free up 30GB+)
         uses: easimon/maximize-build-space@master
         with:
           root-reserve-mb: 40000
@@ -20,7 +20,19 @@ jobs:
           remove-android: 'true'
           remove-haskell: 'true'
           remove-codeql: 'true'
-          remove-docker-images: 'true'
+
+      - name: 🛠️ Move Docker Storage to max space
+        run: |
+          # 停止 Docker
+          sudo systemctl stop docker
+          # 在新挂载的大空间目录创建一个文件夹
+          mkdir -p ${{ github.workspace }}/docker-data
+          # 让 Docker 以后把数据全存到这个大空间里
+          echo '{"data-root": "${{ github.workspace }}/docker-data"}' | sudo tee /etc/docker/daemon.json
+          # 重启 Docker
+          sudo systemctl restart docker
+          # 确认磁盘空间
+          df -h
 
       - name: ⬇️ Pull image
         run: docker pull ${{ github.event.inputs.image }}
