@@ -1,51 +1,49 @@
-name: Download Docker Image
+name: Ultimate Download Docker Image (No Disk Limit)
 on:
   workflow_dispatch:
     inputs:
       image:
-        description: 'Docker image name (e.g. etenal/syzscope:ready2go)'
+        description: 'Docker image name'
         required: true
-        default: 'etenal/syzscope:ready2go'
+        default: 'docker://docker.io/etenal/syzscope:ready2go'
 
 jobs:
-  build:
+  download-and-split:
     runs-on: ubuntu-latest
     steps:
-      - name: 🧹 Maximize build space (Free up 30GB+)
+      - name: 🧹 Maximize build space (Create massive headroom)
         uses: easimon/maximize-build-space@master
         with:
-          root-reserve-mb: 40000
+          root-reserve-mb: 30000
           swap-size-mb: 1024
           remove-dotnet: 'true'
           remove-android: 'true'
           remove-haskell: 'true'
           remove-codeql: 'true'
+          remove-docker-images: 'true'
 
-      - name: 🛠️ Move Docker Storage to max space
+      - name: 🔧 Install Skopeo
         run: |
-          # 停止 Docker
-          sudo systemctl stop docker
-          # 在新挂载的大空间目录创建一个文件夹
-          mkdir -p ${{ github.workspace }}/docker-data
-          # 让 Docker 以后把数据全存到这个大空间里
-          echo '{"data-root": "${{ github.workspace }}/docker-data"}' | sudo tee /etc/docker/daemon.json
-          # 重启 Docker
-          sudo systemctl restart docker
-          # 确认磁盘空间
-          df -h
+          sudo apt-get update
+          sudo apt-get install -y skopeo
 
-      - name: ⬇️ Pull image
-        run: docker pull ${{ github.event.inputs.image }}
-
-      - name: 📦 Save image to tar
-        run: docker save -o image.tar ${{ github.event.inputs.image }}
-
-      - name: ✂️ Split tar file (2GB per chunk)
-        run: split -b 2000M image.tar image.tar.part.
+      - name: 📥 Download and Split on the fly
+        run: |
+          # 建立工作目录
+          mkdir -p ${{ github.workspace }}/output
+          cd ${{ github.workspace }}/output
+          
+          # Skopeo 直接从远端把镜像流式转换为 tar，并且通过管道直接交给 split 切片
+          # 全程没有任何中间文件，也没有解压产生的磁盘浪费！
+          skopeo copy ${{ github.event.inputs.image }} docker-archive:/dev/stdout | split -b 2000m - image.tar.part.
+          
+          # 打印一下生成的文件大小，让你安心
+          ls -lh
 
       - name: ⬆️ Upload to Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: docker-image-parts
-          path: image.tar.part.*
+          # 指定上传切片文件
+          path: ${{ github.workspace }}/output/image.tar.part.*
           retention-days: 1
