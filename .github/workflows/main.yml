@@ -1,4 +1,4 @@
-name: Ultimate Download Docker Image
+name: Ultimate Download to Release
 on:
   workflow_dispatch:
     inputs:
@@ -7,39 +7,36 @@ on:
         required: true
         default: 'docker://docker.io/etenal/syzscope:ready2go'
 
+# 赋予自动创建 Release 的权限
+permissions:
+  contents: write
+
 jobs:
-  download-and-split:
+  download-and-release:
     runs-on: ubuntu-latest
     steps:
       - name: 🧹 Safely Free up Disk Space
         run: |
-          # 仅仅安全地删掉最占空间的几个预装软件，瞬间释放约 20GB
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           sudo apt-get clean
-          df -h
 
       - name: 🔧 Install Skopeo
         run: |
           sudo apt-get update
           sudo apt-get install -y skopeo
 
-      - name: 📥 Download and Split on the fly
+      - name: 📥 Download and Split (1.9GB Chunks)
         run: |
-          mkdir -p ${{ github.workspace }}/output
-          cd ${{ github.workspace }}/output
-          
-          # Skopeo 流式下载并立刻切片（每块 2GB）
-          skopeo copy ${{ github.event.inputs.image }} docker-archive:/dev/stdout | split -b 2000m - image.tar.part.
-          
-          # 检查生成的文件
-          ls -lh
+          mkdir -p output
+          cd output
+          # 切成 1.9GB 的块，确保不超过 GitHub 发布的单文件 2GB 限制
+          skopeo copy ${{ github.event.inputs.image }} docker-archive:/dev/stdout | split -b 1900m - image.tar.part.
 
-      - name: ⬆️ Upload to Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker-image-parts
-          path: ${{ github.workspace }}/output/image.tar.part.*
-          retention-days: 1
+      - name: 🚀 Upload to Permanent GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 根据时间生成一个版本号
+          TAG="v$(date +'%Y%m%d-%H%M%S')"
+          # 自动创建发布页，并把所有切片挂载上去
+          gh release create "$TAG" ./output/* --repo ${{ github.repository }} --title "Docker Image Download" --notes "永久有效直链。下载所有切片后，在 Windows 执行：cmd /c copy /B image.tar.part.* syzscope.tar"
